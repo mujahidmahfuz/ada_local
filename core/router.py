@@ -1,5 +1,5 @@
 """
-Fast FunctionGemma Router - Optimized version.
+FunctionGemma Router - Routes user prompts to thinking/nonthinking.
 """
 
 import torch
@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers.utils import get_json_schema
 from typing import Literal
 import time
+
 
 # Define tools at module level (required for get_json_schema)
 def thinking(prompt: str) -> str:
@@ -18,6 +19,7 @@ def thinking(prompt: str) -> str:
     """
     return "result"
 
+
 def nonthinking(prompt: str) -> str:
     """
     Use this function for simple queries, greetings, factual questions, or tasks that do not require deep reasoning.
@@ -26,6 +28,7 @@ def nonthinking(prompt: str) -> str:
         prompt: The user's original prompt
     """
     return "result"
+
 
 # Pre-compute tool schemas
 TOOLS = [get_json_schema(thinking), get_json_schema(nonthinking)]
@@ -114,7 +117,7 @@ class FunctionGemmaRouter:
 
 
 if __name__ == "__main__":
-    router = FunctionGemmaRouter(compile_model=False)  # Disable compile for first test
+    router = FunctionGemmaRouter(compile_model=False)
     
     test_prompts = [
         ("What is the capital of France?", "nonthinking"),
