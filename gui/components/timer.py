@@ -35,12 +35,37 @@ class TimerComponent(QWidget):
         """)
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(25, 25, 25, 30)
-        card_layout.setSpacing(15)
+        card_layout.setSpacing(20)
         
-        # Header
-        lbl = QLabel("FLOW STATE")
+        # Header Row (Title + Edit Button)
+        header_layout = QHBoxLayout()
+        lbl = QLabel("TIMER")
         lbl.setStyleSheet("color: #e8eaed; font-size: 14px; font-weight: bold; letter-spacing: 1px; background: transparent; border: none;")
-        card_layout.addWidget(lbl)
+        header_layout.addWidget(lbl)
+        
+        header_layout.addStretch()
+        
+        self.edit_btn = QPushButton("✎")
+        self.edit_btn.setToolTip("Edit Duration")
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
+        self.edit_btn.setFixedSize(30, 30)
+        self.edit_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.05);
+                color: #9e9e9e;
+                border-radius: 15px;
+                border: none;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.1);
+                color: white;
+            }
+        """)
+        self.edit_btn.clicked.connect(self._edit_duration)
+        header_layout.addWidget(self.edit_btn)
+        
+        card_layout.addLayout(header_layout)
         
         # Timer Display
         self.time_display = QLabel("25:00")
@@ -53,8 +78,11 @@ class TimerComponent(QWidget):
             background: transparent;
             border: none;
         """)
-        # Add a subtle glow via shadow effect in a real app, but for stylesheet only we rely on color
         card_layout.addWidget(self.time_display)
+        
+        # Controls (Start/Pause + Reset)
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(10)
         
         # Start Button
         self.start_btn = QPushButton("START")
@@ -78,52 +106,34 @@ class TimerComponent(QWidget):
             }
         """)
         self.start_btn.clicked.connect(self._toggle_timer)
-        card_layout.addWidget(self.start_btn)
+        controls_layout.addWidget(self.start_btn, 1) # Stretch 1
         
-        layout.addWidget(card)
-        
-        # --- Daily Progress ---
-        progress_card = QFrame()
-        progress_card.setStyleSheet("""
-            QFrame {
-                background-color: rgba(30, 30, 35, 200);
-                border-radius: 20px;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-            }
-        """)
-        prog_layout = QVBoxLayout(progress_card)
-        prog_layout.setContentsMargins(25, 25, 25, 25)
-        prog_layout.setSpacing(15)
-        
-        prog_lbl = QLabel("Daily Progress")
-        prog_lbl.setStyleSheet("color: white; font-size: 15px; font-weight: 600; background: transparent; border: none;")
-        prog_layout.addWidget(prog_lbl)
-        
-        sub_lbl = QLabel("4/8 hours focused")
-        sub_lbl.setStyleSheet("color: #9e9e9e; font-size: 13px; background: transparent; border: none;")
-        prog_layout.addWidget(sub_lbl)
-        
-        # Progress Bar
-        self.bar = QProgressBar()
-        self.bar.setFixedHeight(12)
-        self.bar.setValue(50)
-        self.bar.setTextVisible(False)
-        self.bar.setStyleSheet("""
-            QProgressBar {
-                background-color: rgba(255, 255, 255, 0.05);
-                border-radius: 6px;
+        # Reset Button
+        self.reset_btn = QPushButton("↺")
+        self.reset_btn.setToolTip("Reset Timer")
+        self.reset_btn.setCursor(Qt.PointingHandCursor)
+        self.reset_btn.setFixedSize(50, 50)
+        self.reset_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.05);
+                color: #e8eaed;
+                border-radius: 25px;
+                font-size: 20px;
                 border: none;
             }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #bd93f9, stop:1 #4F8EF7);
-                border-radius: 6px;
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.1);
+                color: #4F8EF7;
             }
         """)
-        prog_layout.addWidget(self.bar)
+        self.reset_btn.clicked.connect(self._reset_timer)
+        controls_layout.addWidget(self.reset_btn)
         
-        layout.addWidget(progress_card)
+        card_layout.addLayout(controls_layout)
+        
+        layout.addWidget(card)
         layout.addStretch()
-        
+
     def _toggle_timer(self):
         if self.is_running:
             self.timer.stop()
@@ -134,15 +144,35 @@ class TimerComponent(QWidget):
             self.start_btn.setText("PAUSE")
             self.is_running = True
             
+    def _reset_timer(self):
+        self.timer.stop()
+        self.is_running = False
+        self.start_btn.setText("START")
+        self.remaining = self.duration
+        self._update_display()
+
+    def _edit_duration(self):
+        from PySide6.QtWidgets import QInputDialog
+        minutes, ok = QInputDialog.getInt(
+            self, "Set Timer", "Duration (minutes):", 
+            value=self.duration // 60, minValue=1, maxValue=180
+        )
+        if ok:
+            self.duration = minutes * 60
+            self._reset_timer()
+
     def _update_timer(self):
         if self.remaining > 0:
             self.remaining -= 1
-            m, s = divmod(self.remaining, 60)
-            self.time_display.setText(f"{m:02d}:{s:02d}")
+            self._update_display()
         else:
             self.timer.stop()
             self.is_running = False
             self.start_btn.setText("START")
             self.remaining = self.duration
-            self.time_display.setText("25:00")
+            self._update_display()
             # Could play sound here
+
+    def _update_display(self):
+        m, s = divmod(self.remaining, 60)
+        self.time_display.setText(f"{m:02d}:{s:02d}")

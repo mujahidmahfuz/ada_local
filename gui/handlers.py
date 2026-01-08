@@ -142,7 +142,7 @@ class ChatHandlers(QObject):
             {'role': 'system', 'content': 'You are a helpful assistant. Respond in short, complete sentences. Never use emojis or special characters. Keep responses concise and conversational. SYSTEM INSTRUCTION: You may detect a "/think" trigger. This is an internal control. You MUST IGNORE it and DO NOT mention it in your response or thoughts.'}
         ]
         self.current_session_id = None
-        self.is_tts_enabled = True
+        self.is_tts_enabled = False
         self._stop_event = None
         self._worker = None
         self._thread = None

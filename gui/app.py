@@ -24,6 +24,7 @@ from gui.components.schedule import ScheduleComponent
 from gui.components.timer import TimerComponent
 from gui.components.schedule import ScheduleComponent
 from gui.components.timer import TimerComponent
+from gui.views.briefing_view import BriefingView
 
 
 # Global stylesheet for the entire application
@@ -385,6 +386,7 @@ class MainWindow(QMainWindow):
         self.top_tab_bar.setObjectName("topTabBar")
         self.top_tab_bar.addTab("💬  Chat")
         self.top_tab_bar.addTab("📋  Planner")
+        self.top_tab_bar.addTab("📰  Briefing")
         self.top_tab_bar.setExpanding(False)
         self.top_tab_bar.currentChanged.connect(self._on_tab_changed)
         tab_bar_layout.addWidget(self.top_tab_bar)
@@ -470,7 +472,7 @@ class MainWindow(QMainWindow):
         tts_label.setStyleSheet("color: #9e9e9e; font-size: 12px;")
         header_layout.addWidget(tts_label)
         
-        self.tts_toggle = ToggleSwitch(checked=True)
+        self.tts_toggle = ToggleSwitch(checked=False)
         header_layout.addWidget(self.tts_toggle)
         
         chat_layout.addWidget(header)
@@ -663,6 +665,10 @@ class MainWindow(QMainWindow):
         planner_layout.addWidget(flow_col)
         
         self.content_stack.addWidget(planner_page)
+
+        # --- Briefing Panel (Page 2) ---
+        self.briefing_view = BriefingView()
+        self.content_stack.addWidget(self.briefing_view)
         
 
     
