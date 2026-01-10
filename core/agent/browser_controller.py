@@ -96,34 +96,17 @@ class BrowserController:
                 self.page.mouse.click(x, y)
 
         elif action_name == "left_click_drag":
-            # Start coordinate
+            # "Click and drag the cursor to a specified (x, y) pixel coordinate"
+            # We assume this means dragging FROM current position TO the new position.
             coords = params.get("coordinate")
             if coords:
                 x, y = self._scale_coordinates(coords[0], coords[1])
-                self.page.mouse.move(x, y)
+                # 1. Mouse down at current location
                 self.page.mouse.down()
-                # Drag implies moving to a destination, but Qwen's drag usually expects
-                # a sequence of moves or just the down event. 
-                # For simplicity, we just hold down here. A subsequent move+up might be needed 
-                # or the model might send another move command.
-                # However, usually 'drag' in these schemas implies dragging TO somewhere.
-                # But looking at Qwen schema, it just says "Click and drag the cursor to a specified... coordinate".
-                # It sounds like it moves TO there and clicks/drags?
-                # Actually, standard behavior: Move to X,Y -> Down -> (Wait for next command?)
-                # Or does it mean "Drag FROM current TO X,Y"?
-                # Re-reading Qwen docs: "Click and drag the cursor to a specified (x, y) pixel coordinate"
-                # implying the destination. But where does it start?
-                # We will assume it starts from CURRENT position and drags TO the target.
-                # BUT, the param is just one coordinate.
-                # Let's interpret 'left_click_drag' as: Move to (x,y), Mouse Down. 
-                # The model might issue 'mouse_move' then 'left_click_drag' (to release?).
-                # actually, looking at the schema: "left_click_drag: Click and drag the cursor to a specified (x, y)..."
-                # This suggests the ACTION is the drag itself. 
-                # Let's assume it means: Actions should be atomic. 
-                # For now, let's implement as: Move to X,Y, Click. (Same as left_click)
-                # To support real drag, we'd need a 'from' and 'to'.
-                # We'll stick to a simple click for now to avoid hanging state.
-                self.page.mouse.click(x, y)
+                # 2. Move to new (x,y)
+                self.page.mouse.move(x, y, steps=10) # steps makes it smoother/more human-like
+                # 3. Mouse up
+                self.page.mouse.up()
 
         elif action_name == "right_click":
             coords = params.get("coordinate")
@@ -131,11 +114,23 @@ class BrowserController:
                 x, y = self._scale_coordinates(coords[0], coords[1])
                 self.page.mouse.click(x, y, button="right")
 
+        elif action_name == "middle_click":
+            coords = params.get("coordinate")
+            if coords:
+                x, y = self._scale_coordinates(coords[0], coords[1])
+                self.page.mouse.click(x, y, button="middle")
+
         elif action_name == "double_click":
             coords = params.get("coordinate")
             if coords:
                 x, y = self._scale_coordinates(coords[0], coords[1])
                 self.page.mouse.dblclick(x, y)
+
+        elif action_name == "triple_click":
+            coords = params.get("coordinate")
+            if coords:
+                x, y = self._scale_coordinates(coords[0], coords[1])
+                self.page.mouse.click(x, y, click_count=3)
 
         elif action_name == "type":
             text = params.get("text")
@@ -158,21 +153,27 @@ class BrowserController:
                     self.page.keyboard.press(keys)
 
         elif action_name == "scroll":
-            # Qwen schema: "Positive values scroll up, negative values scroll down."
-            # Playwright mouse.wheel(delta_x, delta_y). Positive delta_y scrolls DOWN.
-            # So we invert the sign?
-            # "Positive values scroll up" -> means content moves up? (User scrolls down)
-            # Usually 'scroll up' means going to the top of the page (wheel delta negative).
             pixels = params.get("pixels", 0)
             if pixels:
-                # If Qwen says "scroll up" (positive), we want wheel delta negative?
-                # Let's assume Qwen follows standard UI logic:
-                # Scroll Up (content goes down) -> negative deltaY
-                # Scroll Down (content goes up) -> positive deltaY
-                # If Qwen says "Positive values = scroll up", then pixels=100 means scroll up.
-                # Playwright: wheel(0, -100) scrolls UP.
-                # So we negate it.
+                # Qwen: Positive = scroll up (content moves down).
+                # Playwright: Negative delta_y = scroll up.
                 self.page.mouse.wheel(0, -pixels)
+
+        elif action_name == "hscroll":
+            pixels = params.get("pixels", 0)
+            if pixels:
+                # Qwen: Positive = scroll? Usage not fully defined but likely consistent.
+                # Assuming positive = scroll right? Or same "up/down" logic applied to horizontal?
+                # Cookbook: "Positive values scroll up, negative values scroll down... Required only by `action=scroll` and `action=hscroll`"
+                # "Scroll up" for horizontal usually means "Scroll Left" (content moves right).
+                # Playwright: delta_x > 0 is scroll right, < 0 is scroll left.
+                # If "Up" ~ "Left", then Positive -> Negative delta_x.
+                self.page.mouse.wheel(-pixels, 0)
+        
+        elif action_name == "navigate":
+            url = params.get("url")
+            if url:
+                self.goto(url)
 
         elif action_name == "wait":
             duration = params.get("time", 1.0)

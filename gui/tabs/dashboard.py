@@ -14,7 +14,9 @@ from qfluentwidgets import (
 from core.news import news_manager
 from core.tasks import task_manager
 from core.calendar import calendar_manager
-from datetime import datetime
+from core.kasa_control import kasa_manager
+from datetime import datetime, timedelta
+import asyncio
 
 # --- Components ---
 
@@ -241,12 +243,14 @@ class StatCard(CardWidget):
 
 class HomeScenesCard(CardWidget):
     """
-    Card with Home Scene buttons.
+    Card with Home Scene buttons that control Kasa devices.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(280, 160)
         self.setBorderRadius(16)
+        self._devices = []
+        self._action_thread = None
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -261,27 +265,81 @@ class HomeScenesCard(CardWidget):
         
         # Buttons
         btns = QHBoxLayout()
-        b1 = QPushButton("Focus Mode")
-        b1.setStyleSheet("""
+        self.focus_btn = QPushButton("Focus Mode")
+        self.focus_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1a2236; color: #e8eaed; border: 1px solid #1a2236; 
                 border-radius: 8px; padding: 8px; font-weight: bold;
             }
             QPushButton:hover { background-color: #232d45; }
         """)
+        self.focus_btn.clicked.connect(self._on_focus_mode)
         
-        b2 = QPushButton("Relax")
-        b2.setStyleSheet("""
+        self.relax_btn = QPushButton("Relax")
+        self.relax_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent; color: #e8eaed; border: 1px solid #1a2236; 
                 border-radius: 8px; padding: 8px; font-weight: bold;
             }
             QPushButton:hover { background-color: #1a2236; }
         """)
+        self.relax_btn.clicked.connect(self._on_relax_mode)
         
-        btns.addWidget(b1)
-        btns.addWidget(b2)
+        btns.addWidget(self.focus_btn)
+        btns.addWidget(self.relax_btn)
         layout.addLayout(btns)
+    
+    def set_devices(self, devices: list):
+        """Store the discovered devices for scene control."""
+        self._devices = devices
+    
+    def _on_focus_mode(self):
+        """Focus Mode: Turn off all lights to minimize distractions."""
+        if not self._devices:
+            return
+        self._run_scene_action(self._focus_action)
+    
+    def _on_relax_mode(self):
+        """Relax Mode: Dim lights to 40%."""
+        if not self._devices:
+            return
+        self._run_scene_action(self._relax_action)
+    
+    def _run_scene_action(self, action_func):
+        """Run a scene action in a background thread."""
+        class SceneThread(QThread):
+            def __init__(self, func):
+                super().__init__()
+                self.func = func
+            def run(self):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.func())
+                loop.close()
+        
+        self._action_thread = SceneThread(action_func)
+        self._action_thread.start()
+    
+    async def _focus_action(self):
+        """Turn off all discovered devices."""
+        for device in self._devices:
+            try:
+                await kasa_manager.turn_off(device['ip'])
+            except Exception as e:
+                print(f"Focus mode error for {device['alias']}: {e}")
+    
+    async def _relax_action(self):
+        """Dim all dimmable devices to 40%."""
+        for device in self._devices:
+            try:
+                if device.get('brightness') is not None:
+                    await kasa_manager.set_brightness(device['ip'], 40)
+                    await kasa_manager.turn_on(device['ip'])
+                else:
+                    # For non-dimmable, just turn on
+                    await kasa_manager.turn_on(device['ip'])
+            except Exception as e:
+                print(f"Relax mode error for {device['alias']}: {e}")
 
 
 class IntelligenceItem(QFrame):
@@ -393,13 +451,14 @@ class IntelligenceFeed(CardWidget):
         sep2.setStyleSheet("background-color: #1a2236;")
         self.layout.addWidget(sep2)
         
-        # 3. Energy Saving (Mock)
-        self.layout.addWidget(IntelligenceItem(
-                FIF.SPEED_HIGH, 
-                "Energy Saving",
-                "Living Room lights dimmed to 40% based on ambient sunlight.",
-                "1H AGO"
-        ))
+        # 3. Devices Status
+        self.devices_item = IntelligenceItem(
+            FIF.IOT, 
+            "Smart Home",
+            "Scanning for connected devices...",
+            "NOW"
+        )
+        self.layout.addWidget(self.devices_item)
         
         self.layout.addStretch()
         
@@ -413,6 +472,37 @@ class IntelligenceFeed(CardWidget):
             self.news_item.update_content("Intel Alert", top['title'], "JUST NOW")
         else:
             self.news_item.update_content("Intel Alert", "No active intelligence streams detected.", "NOW")
+    
+    def update_devices(self, devices):
+        count = len(devices) if devices else 0
+        online = sum(1 for d in devices if d.get('is_on')) if devices else 0
+        if count > 0:
+            self.devices_item.update_content(
+                "Smart Home", 
+                f"{count} devices found, {online} currently on.", 
+                "LIVE"
+            )
+        else:
+            self.devices_item.update_content(
+                "Smart Home", 
+                "No Kasa devices detected on network.", 
+                "NOW"
+            )
+    
+    def update_focus(self, tasks):
+        active = [t for t in tasks if not t.get('completed')]
+        if active:
+            self.focus_item.update_content(
+                "Daily Focus",
+                f"You have {len(active)} active task{'s' if len(active) != 1 else ''} to complete today.",
+                "NOW"
+            )
+        else:
+            self.focus_item.update_content(
+                "Daily Focus",
+                "All tasks completed. Great job!",
+                "NOW"
+            )
 
 class PriorityCard(QFrame):
     """
@@ -439,17 +529,15 @@ class PriorityCard(QFrame):
         l1 = QLabel("Upcoming Priority")
         l1.setStyleSheet("color: white; font-weight: bold; font-size: 16px; background: transparent;")
         
-        # Fetch next event
-        next_event = self._get_next_event()
-        l2 = QLabel(next_event['title'])
-        l2.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 14px; background: transparent;")
+        self.title_label = QLabel("No upcoming events")
+        self.title_label.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 14px; background: transparent;")
         
-        l3 = QLabel(f"Starts in {next_event['starts_in']}")
-        l3.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
+        self.time_label = QLabel("")
+        self.time_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px; background: transparent;")
         
         txt.addWidget(l1)
-        txt.addWidget(l2)
-        txt.addWidget(l3)
+        txt.addWidget(self.title_label)
+        txt.addWidget(self.time_label)
         
         layout.addLayout(txt)
         layout.addStretch()
@@ -469,29 +557,66 @@ class PriorityCard(QFrame):
         """)
         layout.addWidget(btn)
 
-    def _get_next_event(self):
-        # Mock logic or real fetch
-        # For now return mock if no events
-        return {
-            "title": "Market Strategy Review",
-            "starts_in": "45 minutes"
-        }
+    def update_event(self, events: list):
+        """Update with the next upcoming event from the list."""
+        now = datetime.now()
+        next_event = None
+        
+        for event in events:
+            try:
+                start_time = datetime.strptime(event['start_time'], "%Y-%m-%d %H:%M:%S")
+                if start_time > now:
+                    if next_event is None or start_time < datetime.strptime(next_event['start_time'], "%Y-%m-%d %H:%M:%S"):
+                        next_event = event
+            except (KeyError, ValueError):
+                continue
+        
+        if next_event:
+            self.title_label.setText(next_event['title'])
+            start_time = datetime.strptime(next_event['start_time'], "%Y-%m-%d %H:%M:%S")
+            delta = start_time - now
+            minutes = int(delta.total_seconds() / 60)
+            if minutes < 60:
+                self.time_label.setText(f"Starts in {minutes} minutes")
+            else:
+                hours = minutes // 60
+                self.time_label.setText(f"Starts in {hours} hour{'s' if hours > 1 else ''}")
+        else:
+            self.title_label.setText("No upcoming events")
+            self.time_label.setText("Enjoy your free time!")
 
 class DashboardLoader(QThread):
     finished = Signal(dict)
     
     def run(self):
-        # Fetch tasks and news in background
+        # Fetch tasks, news, devices, and calendar in background
         try:
             tasks = task_manager.get_tasks()
             news = news_manager.get_briefing(use_ai=False)
+            
+            # Fetch Kasa devices
+            devices = []
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                devices = loop.run_until_complete(kasa_manager.discover_devices())
+                loop.close()
+            except Exception as e:
+                print(f"Kasa discovery error: {e}")
+            
+            # Fetch today's calendar events
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            events = calendar_manager.get_events(today_str)
+            
             self.finished.emit({
                 "tasks": tasks,
-                "news": news
+                "news": news,
+                "devices": devices,
+                "events": events
             })
         except Exception as e:
             print(f"Dashboard loader error: {e}")
-            self.finished.emit({"tasks": [], "news": []})
+            self.finished.emit({"tasks": [], "news": [], "devices": [], "events": []})
 
 class DashboardView(QWidget):
     """
@@ -521,15 +646,17 @@ class DashboardView(QWidget):
         self.planner_stat = StatCard(FIF.CALENDAR, "Planner Agenda", "--")
         left_col.addWidget(self.planner_stat)
         
-        # Stat 2: Devices (Mock)
-        left_col.addWidget(StatCard(FIF.CODE, "Active Devices", "3"))
+        # Stat 2: Devices (Live from Kasa)
+        self.devices_stat = StatCard(FIF.IOT, "Active Devices", "--")
+        left_col.addWidget(self.devices_stat)
         
         # Stat 3: Unread News
         self.news_stat = StatCard(FIF.TILES, "Unread News", "--")
         left_col.addWidget(self.news_stat)
         
         # Home Scenes
-        left_col.addWidget(HomeScenesCard())
+        self.home_scenes = HomeScenesCard()
+        left_col.addWidget(self.home_scenes)
         
         left_col.addStretch()
         content_layout.addLayout(left_col)
@@ -540,6 +667,9 @@ class DashboardView(QWidget):
         content_layout.addWidget(self.feed, 1)
         
         main_layout.addLayout(content_layout)
+        
+        # Store devices for scene control
+        self._devices = []
         
         # Trigger async load
         QTimer.singleShot(100, self._start_loading)
@@ -555,10 +685,23 @@ class DashboardView(QWidget):
     def _on_data_loaded(self, data):
         tasks = data.get("tasks", [])
         news = data.get("news", [])
+        devices = data.get("devices", [])
+        events = data.get("events", [])
         
-        # Update UI
+        # Store devices for scene control
+        self._devices = devices
+        self.home_scenes.set_devices(devices)
+        
+        # Update stat cards
         active_tasks = [t for t in tasks if not t.get('completed')]
         self.planner_stat.set_count(len(active_tasks))
         self.news_stat.set_count(len(news))
+        self.devices_stat.set_count(len(devices))
         
+        # Update intelligence feed
         self.feed.update_news(news)
+        self.feed.update_devices(devices)
+        self.feed.update_focus(tasks)
+        
+        # Update priority card with calendar events
+        self.feed.priority.update_event(events)

@@ -88,9 +88,10 @@ class BrowserTab(QWidget):
         layout.addWidget(controls_container, stretch=2)
 
     def _setup_agent(self):
-        # Instantiate agent
-        # User requested smallest model: qwen2.5-vl:3b or similar small checkpoint
-        self.agent = BrowserAgent(model_name="qwen3-vl:2b") 
+        # Instantiate agent - model comes from settings now
+        from core.settings_store import settings
+        model_name = settings.get("models.web_agent", "qwen3-vl:4b")
+        self.agent = BrowserAgent(model_name=model_name) 
         self.agent.moveToThread(self.agent_thread)
         
         # Connect signals

@@ -7,6 +7,7 @@ from core.llm import route_query, execute_function, should_bypass_router, http_s
 from core.tts import tts, SentenceBuffer
 from core.history import history_manager
 from core.model_manager import ensure_exclusive_qwen
+from core.settings_store import settings as app_settings
 
 
 # DEBUG: Set to True to test streaming without TTS blocking
@@ -48,8 +49,9 @@ class ChatWorker(QObject):
                 func_name, params = route_query(self.user_text)
             
             if func_name == "passthrough":
-                if len(self.messages) > MAX_HISTORY:
-                    self.messages = [self.messages[0]] + self.messages[-(MAX_HISTORY-1):]
+                max_hist = app_settings.get("general.max_history", MAX_HISTORY)
+                if len(self.messages) > max_hist:
+                    self.messages = [self.messages[0]] + self.messages[-(max_hist-1):]
                 
                 self.messages.append({'role': 'user', 'content': self.user_text})
                 enable_thinking = params.get("thinking", False)
@@ -58,10 +60,14 @@ class ChatWorker(QObject):
                 self.status.emit("Generating...")
                 
                 # Ensure only this Qwen model is running
-                ensure_exclusive_qwen(RESPONDER_MODEL)
+                model = app_settings.get("models.chat", RESPONDER_MODEL)
+                ensure_exclusive_qwen(model)
+                
+                # Get Ollama URL from settings
+                ollama_url = app_settings.get("ollama_url", OLLAMA_URL)
                 
                 payload = {
-                    "model": RESPONDER_MODEL,
+                    "model": model,
                     "messages": self.messages,
                     "stream": True,
                     "think": enable_thinking,
@@ -74,7 +80,7 @@ class ChatWorker(QObject):
                 # Only emit think_start with True if thinking is enabled
                 self.think_start.emit(enable_thinking)
 
-                with http_session.post(f"{OLLAMA_URL}/chat", json=payload, stream=True) as r:
+                with http_session.post(f"{ollama_url}/api/chat", json=payload, stream=True) as r:
                     r.raise_for_status()
                     
                     for line in r.iter_lines():

@@ -94,6 +94,13 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.home_lazy, FIF.LAYOUT, "Home Auto")
         self.addSubInterface(self.browser_lazy, FIF.GLOBE, "Web Agent")
         
+        # Settings at bottom
+        self.settings_lazy = LazyTab(SettingsTab, "settingsInterface")
+        self.addSubInterface(
+            self.settings_lazy, FIF.SETTING, "Settings",
+            NavigationItemPosition.BOTTOM
+        )
+        
     def _connect_signals(self):
         """Connect signals. Signals for lazy tabs are connected upon initialization."""
         self.stackedWidget.currentChanged.connect(self._on_tab_changed)

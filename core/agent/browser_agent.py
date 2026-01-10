@@ -20,10 +20,17 @@ class BrowserAgent(QObject):
     finished = Signal()
     error_occurred = Signal(str)
 
-    def __init__(self, model_name="qwen2.5-vl:3b"):
+    def __init__(self, model_name="qwen3-vl:4b"):
         super().__init__()
-        self.controller = BrowserController(headless=False) # Headed for debugging/visibility
-        self.client = VLMClient(model_name=model_name)
+        self.controller = BrowserController(headless=True) # Headed for debugging/visibility
+        self.client = VLMClient(
+            model_name=model_name,
+            model_params={
+                "temperature": 1,
+                "top_k": 20,
+                "top_p": 0.95
+            }
+        )
         self.running = False
         self.history = []
 
@@ -107,7 +114,11 @@ class BrowserAgent(QObject):
             for chunk in self.client.generate_action(ollama_messages):
                 if chunk["type"] == "thinking":
                     self.thinking_update.emit(chunk["content"])
-                    response_text += chunk["content"]
+                elif chunk["type"] == "text":
+                    # Stream normal text (reasoning or chat) to action log for visibility
+                    # We might want to stream this differently if UI supported it, but for now:
+                    text_chunk = chunk["content"]
+                    response_text += text_chunk
                 elif chunk["type"] == "action":
                     action_data = chunk["content"]
                 elif chunk["type"] == "error":
@@ -115,13 +126,10 @@ class BrowserAgent(QObject):
                     return
 
             # 4. Log Action
+            # 4. Log Action
             if action_data:
                 action_name = action_data.get("action", "unknown")
                 log_str = f"Action: {action_name} {json.dumps(action_data)}"
-                
-                # Log the thought process/context too if available
-                if response_text and len(response_text) < 500: # Limit length
-                    self.action_updated.emit(f"Model Thought: {response_text.split('<tool_call>')[0].strip()}")
                 
                 self.action_updated.emit(log_str)
                 
@@ -156,23 +164,28 @@ class BrowserAgent(QObject):
             else:
                 # No action found, but maybe there's a text response?
                 if response_text.strip():
-                    self.action_updated.emit(f"Model Response: {response_text.strip()}")
-                    # Add to history so model knows it said this
+                    self.action_updated.emit(f"Model Reasoned: {response_text[:100]}...") # Log summary
+                    # Add reasoning to history
                     self.history.append({
                         "role": "assistant",
                         "content": response_text
                     })
-                    # Add reprompt for action if it was just talking
+                    
+                    # AUTOMATIC REPROMPT
+                    self.action_updated.emit("Reprompting for tool call...")
                     self.history.append({
                         "role": "user",
-                        "content": "Please output a valid <tool_call> for the next action."
+                        "content": "You analyzed the situation but did not output a function call. Please output the <tool_call> XML block now."
                     })
+                    # Loop will continue naturally? No, outer loop is 'while self.running'.
+                    # We need to restart the loop logic immediately or just 'continue' to let next iteration handle it?
+                    # The next iteration effectively calls client.generate_action with the new history!
+                    # So 'continue' is correct.
+                    continue
                 else:
                     self.action_updated.emit("No action parsed and no text response.")
-                    self.history.append({
-                        "role": "user",
-                        "content": "I did not see a valid tool call. Please output a computer_use action."
-                    })
+                    # Reprompt anyway?
+                    time.sleep(1)
 
     def _emit_screenshot(self, b64_str):
         try:
