@@ -53,7 +53,7 @@ python-kasa>=0.10.0            # TP-Link Kasa smart device control
 # Web & API Integrations
 # -----------------------------------------------------
 requests>=2.32.0               # HTTP requests for API calls
-ddgs>=9.0.0                    # DuckDuckGo search (replaces duckduckgo-search)
+duckduckgo-search>=8.0.0       # DuckDuckGo search API (provides DDGS class)
 httpx>=0.28.0                  # Async HTTP client
 
 # -----------------------------------------------------
